@@ -1759,3 +1759,18 @@ footer {
     margin-bottom: 15px;
     border-radius: 4px;
 }
+.sortable-list {
+    list-style: none;
+    padding: 0;
+}
+.sortable-item {
+    padding: 8px;
+    margin: 4px 0;
+    background: #f4f4f4;
+    cursor: move;
+    border: 1px solid #ccc;
+}
+.handle {
+    margin-right: 10px;
+    cursor: grab;
+}

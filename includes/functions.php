@@ -1,6 +1,7 @@
 <?php
 // functions.php
 
+
 function flash($key, $message = null) {
     if ($message) {
         $_SESSION['flash'][$key] = $message;
@@ -40,6 +41,7 @@ function get_setting($key, $default = null) {
 }
 
 // Enhanced breadcrumb functions for functions.php
+// Fixed BreadcrumbManager class with improved error handling
 
 class BreadcrumbManager {
     private $pdo;
@@ -137,26 +139,11 @@ class BreadcrumbManager {
         
         switch ($page) {
             case 'category.php':
-                if (isset($_GET['id'])) {
-                    $category = $this->getCategoryById($_GET['id']);
-                    if ($category) {
-                        $this->add($category['name'], null, 'category');
-                    }
-                }
+                $this->handleCategoryBreadcrumb();
                 break;
                 
             case 'thread.php':
-                if (isset($_GET['id'])) {
-                    $thread = $this->getThreadById($_GET['id']);
-                    if ($thread) {
-                        $this->add(
-                            $thread['cat_name'], 
-                            '/forum/category.php?id=' . $thread['cat_id'], 
-                            'category'
-                        );
-                        $this->add($thread['title'], null, 'thread');
-                    }
-                }
+                $this->handleThreadBreadcrumb();
                 break;
                 
             case 'search.php':
@@ -164,19 +151,87 @@ class BreadcrumbManager {
                 break;
                 
             case 'new_thread.php':
-                if (isset($_GET['category_id'])) {
-                    $category = $this->getCategoryById($_GET['category_id']);
-                    if ($category) {
-                        $this->add(
-                            $category['name'], 
-                            '/forum/category.php?id=' . $category['id'], 
-                            'category'
-                        );
-                    }
-                }
-                $this->add('New Thread', null, 'action');
+                $this->handleNewThreadBreadcrumb();
+                break;
+                
+            case 'index.php':
+            case '':
+                // Forum index - no additional breadcrumbs needed
+                break;
+                
+            default:
+                // Generic forum page
+                $pageName = str_replace(['.php', '_', '-'], [' ', ' ', ' '], $page);
+                $this->add(ucwords($pageName), null, 'page');
                 break;
         }
+    }
+    
+    /**
+     * Handle category breadcrumb with validation
+     */
+    private function handleCategoryBreadcrumb() {
+        $categoryId = $_GET['id'] ?? null;
+        
+        // Validate category ID
+        if (!$categoryId || !is_numeric($categoryId) || $categoryId <= 0) {
+            $this->add('Invalid Category', null, 'error');
+            return;
+        }
+        
+        $category = $this->getCategoryById($categoryId);
+        if ($category) {
+            $this->add($category['name'], null, 'category');
+        } else {
+            $this->add('Category Not Found', null, 'error');
+        }
+    }
+    
+    /**
+     * Handle thread breadcrumb with validation
+     */
+    private function handleThreadBreadcrumb() {
+        $threadId = $_GET['id'] ?? null;
+        
+        // Validate thread ID
+        if (!$threadId || !is_numeric($threadId) || $threadId <= 0) {
+            $this->add('Invalid Thread', null, 'error');
+            return;
+        }
+        
+        $thread = $this->getThreadById($threadId);
+        if ($thread) {
+            // Add category breadcrumb first
+            $this->add(
+                $thread['cat_name'], 
+                '/forum/category.php?id=' . $thread['cat_id'], 
+                'category'
+            );
+            // Then add thread
+            $this->add($thread['title'], null, 'thread');
+        } else {
+            $this->add('Thread Not Found', null, 'error');
+        }
+    }
+    
+    /**
+     * Handle new thread breadcrumb
+     */
+    private function handleNewThreadBreadcrumb() {
+        $categoryId = $_GET['category_id'] ?? null;
+        
+        if ($categoryId && is_numeric($categoryId) && $categoryId > 0) {
+            $category = $this->getCategoryById($categoryId);
+            if ($category) {
+                $this->add(
+                    $category['name'], 
+                    '/forum/category.php?id=' . $category['id'], 
+                    'category'
+                );
+            }
+        }
+        
+        $this->add('New Thread', null, 'action');
     }
     
     /**
@@ -244,6 +299,8 @@ class BreadcrumbManager {
             $page = $this->getPageBySlug($_GET['slug']);
             if ($page) {
                 $this->add($page['title'], null, 'page');
+            } else {
+                $this->add('Page Not Found', null, 'error');
             }
         }
     }
@@ -259,51 +316,74 @@ class BreadcrumbManager {
     }
     
     /**
-     * Get category by ID
+     * Get category by ID with improved error handling
      */
     private function getCategoryById($id) {
         try {
-            $stmt = $this->pdo->prepare("SELECT id, name, slug FROM categories WHERE id = ?");
+            // Validate ID is numeric and positive
+            if (!is_numeric($id) || $id <= 0) {
+                return null;
+            }
+            
+            $stmt = $this->pdo->prepare("SELECT id, name, slug FROM categories WHERE id = ? AND (status = 'active' OR status IS NULL)");
             $stmt->execute([$id]);
-            return $stmt->fetch(PDO::FETCH_ASSOC);
+            $result = $stmt->fetch(PDO::FETCH_ASSOC);
+            
+            return $result ?: null;
         } catch (PDOException $e) {
+            error_log("Breadcrumb getCategoryById error: " . $e->getMessage());
             return null;
         }
     }
     
     /**
-     * Get thread with category info by ID
+     * Get thread with category info by ID with improved error handling
      */
     private function getThreadById($id) {
         try {
+            // Validate ID is numeric and positive
+            if (!is_numeric($id) || $id <= 0) {
+                return null;
+            }
+            
             $stmt = $this->pdo->prepare("
                 SELECT t.title, t.slug, c.id AS cat_id, c.name AS cat_name, c.slug AS cat_slug
                 FROM threads t 
                 JOIN categories c ON t.category_id = c.id
-                WHERE t.id = ?
+                WHERE t.id = ? AND (t.status != 'deleted' OR t.status IS NULL) AND (c.status = 'active' OR c.status IS NULL)
             ");
             $stmt->execute([$id]);
-            return $stmt->fetch(PDO::FETCH_ASSOC);
+            $result = $stmt->fetch(PDO::FETCH_ASSOC);
+            
+            return $result ?: null;
         } catch (PDOException $e) {
+            error_log("Breadcrumb getThreadById error: " . $e->getMessage());
             return null;
         }
     }
     
     /**
-     * Get page by slug
+     * Get page by slug with improved error handling
      */
     private function getPageBySlug($slug) {
         try {
+            if (empty($slug)) {
+                return null;
+            }
+            
             $stmt = $this->pdo->prepare("SELECT title, slug FROM pages WHERE slug = ? AND is_published = 1");
             $stmt->execute([$slug]);
-            return $stmt->fetch(PDO::FETCH_ASSOC);
+            $result = $stmt->fetch(PDO::FETCH_ASSOC);
+            
+            return $result ?: null;
         } catch (PDOException $e) {
+            error_log("Breadcrumb getPageBySlug error: " . $e->getMessage());
             return null;
         }
     }
     
     /**
-     * Render breadcrumbs as HTML
+     * Render breadcrumbs as HTML with improved error styling
      */
     public function render($template = 'default') {
         switch ($template) {
@@ -319,7 +399,7 @@ class BreadcrumbManager {
     }
     
     /**
-     * Default breadcrumb rendering
+     * Default breadcrumb rendering with error handling
      */
     private function renderDefault() {
         if (count($this->breadcrumbs) <= 1) {
@@ -339,9 +419,14 @@ class BreadcrumbManager {
                 $itemClass .= ' breadcrumb-current';
             }
             
+            // Add error styling for error type breadcrumbs
+            if ($item['type'] === 'error') {
+                $itemClass .= ' breadcrumb-error';
+            }
+            
             $html .= '<li class="' . $itemClass . '">';
             
-            if (!empty($item['url']) && !$isLast) {
+            if (!empty($item['url']) && !$isLast && $item['type'] !== 'error') {
                 $html .= '<a href="' . htmlspecialchars($item['url']) . '" class="breadcrumb-link">';
                 $html .= htmlspecialchars($item['label']);
                 $html .= '</a>';
@@ -363,7 +448,7 @@ class BreadcrumbManager {
     }
     
     /**
-     * Bootstrap-style breadcrumb rendering
+     * Bootstrap-style breadcrumb rendering with error handling
      */
     private function renderBootstrap() {
         if (count($this->breadcrumbs) <= 1) {
@@ -383,6 +468,11 @@ class BreadcrumbManager {
                 $itemClass .= ' active';
             }
             
+            // Add error styling
+            if ($item['type'] === 'error') {
+                $itemClass .= ' text-danger';
+            }
+            
             $html .= '<li class="' . $itemClass . '"';
             
             if ($isLast) {
@@ -391,7 +481,7 @@ class BreadcrumbManager {
             
             $html .= '>';
             
-            if (!empty($item['url']) && !$isLast) {
+            if (!empty($item['url']) && !$isLast && $item['type'] !== 'error') {
                 $html .= '<a href="' . htmlspecialchars($item['url']) . '">';
                 $html .= htmlspecialchars($item['label']);
                 $html .= '</a>';
@@ -421,12 +511,13 @@ class BreadcrumbManager {
         
         foreach ($this->breadcrumbs as $i => $item) {
             $isLast = ($i === count($this->breadcrumbs) - 1);
+            $cssClass = $item['type'] === 'error' ? ' class="error"' : '';
             
-            if (!empty($item['url']) && !$isLast) {
-                $parts[] = '<a href="' . htmlspecialchars($item['url']) . '">' . 
+            if (!empty($item['url']) && !$isLast && $item['type'] !== 'error') {
+                $parts[] = '<a href="' . htmlspecialchars($item['url']) . '"' . $cssClass . '>' . 
                           htmlspecialchars($item['label']) . '</a>';
             } else {
-                $parts[] = '<span>' . htmlspecialchars($item['label']) . '</span>';
+                $parts[] = '<span' . $cssClass . '>' . htmlspecialchars($item['label']) . '</span>';
             }
         }
         
@@ -437,17 +528,21 @@ class BreadcrumbManager {
     }
     
     /**
-     * JSON-LD structured data for SEO
+     * JSON-LD structured data for SEO (skip error breadcrumbs)
      */
     private function renderJsonLd() {
-        if (count($this->breadcrumbs) <= 1) {
+        $validBreadcrumbs = array_filter($this->breadcrumbs, function($item) {
+            return $item['type'] !== 'error';
+        });
+        
+        if (count($validBreadcrumbs) <= 1) {
             return '';
         }
         
         $listItems = [];
+        $position = 1;
         
-        foreach ($this->breadcrumbs as $i => $item) {
-            $position = $i + 1;
+        foreach ($validBreadcrumbs as $item) {
             $listItem = [
                 "@type" => "ListItem",
                 "position" => $position,
@@ -460,6 +555,7 @@ class BreadcrumbManager {
             }
             
             $listItems[] = $listItem;
+            $position++;
         }
         
         $breadcrumbList = [
@@ -500,35 +596,47 @@ class BreadcrumbManager {
     }
 }
 
-// Updated functions for backward compatibility
+// Updated backward compatibility functions
 function generate_dynamic_breadcrumb($template = 'default', $options = []): string {
     global $pdo;
     
-    $breadcrumb = new BreadcrumbManager($pdo);
-    
-    if (!empty($options)) {
-        $breadcrumb->setOptions($options);
+    try {
+        $breadcrumb = new BreadcrumbManager($pdo);
+        
+        if (!empty($options)) {
+            $breadcrumb->setOptions($options);
+        }
+        
+        return $breadcrumb->generateDynamic()->render($template);
+    } catch (Exception $e) {
+        error_log("Breadcrumb generation error: " . $e->getMessage());
+        return '<nav class="breadcrumb"><ol class="breadcrumb-list"><li class="breadcrumb-item"><a href="/">Home</a></li><li class="breadcrumb-item breadcrumb-error">Error loading breadcrumbs</li></ol></nav>';
     }
-    
-    return $breadcrumb->generateDynamic()->render($template);
 }
 
 function render_breadcrumb(array $items, $template = 'default'): string {
     global $pdo;
     
-    $breadcrumb = new BreadcrumbManager($pdo);
-    $breadcrumb->clear(); // Remove default home
-    
-    foreach ($items as $item) {
-        $breadcrumb->add(
-            $item['label'], 
-            $item['url'] ?? null, 
-            $item['type'] ?? 'page'
-        );
+    try {
+        $breadcrumb = new BreadcrumbManager($pdo);
+        $breadcrumb->clear(); // Remove default home
+        
+        foreach ($items as $item) {
+            $breadcrumb->add(
+                $item['label'], 
+                $item['url'] ?? null, 
+                $item['type'] ?? 'page'
+            );
+        }
+        
+        return $breadcrumb->render($template);
+    } catch (Exception $e) {
+        error_log("Breadcrumb rendering error: " . $e->getMessage());
+        return '<nav class="breadcrumb"><ol class="breadcrumb-list"><li class="breadcrumb-item breadcrumb-error">Error rendering breadcrumbs</li></ol></nav>';
     }
-    
-    return $breadcrumb->render($template);
 }
+
+
 
 // Example usage in your pages:
 /*

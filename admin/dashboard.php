@@ -49,7 +49,16 @@ include __DIR__ . '/../themes/' . $siteTheme . '/header.php';
                 <div class="admin-btn-arrow">→</div>
             </a>
         </li>
-        
+<li class="admin-menu-item">
+    <a href="forum_categories.php" class="admin-btn forums">
+        <div class="admin-btn-icon">🗂️</div>
+        <div class="admin-btn-content">
+            <div class="admin-btn-title">Forum Categories</div>
+            <div class="admin-btn-description">Create, update, and delete forum categories</div>
+        </div>
+        <div class="admin-btn-arrow">→</div>
+    </a>
+</li>
         <li class="admin-menu-item">
             <a href="pages.php" class="admin-btn pages">
                 <div class="admin-btn-icon">

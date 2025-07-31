@@ -5,7 +5,7 @@ require_once __DIR__ . '/../includes/db.php';
 require_once __DIR__ . '/../includes/functions.php';
 
 $stmt = $pdo->query("
-    SELECT c.id, c.name, c.description,
+    SELECT c.id, c.name, c.description, c.sort_order,
            COUNT(t.id) AS thread_count,
            (
                SELECT MAX(p.created_at)
@@ -16,7 +16,7 @@ $stmt = $pdo->query("
     FROM categories c
     LEFT JOIN threads t ON t.category_id = c.id
     GROUP BY c.id
-    ORDER BY c.name
+    ORDER BY c.sort_order ASC, c.name ASC
 ");
 
 $categories = $stmt->fetchAll();
