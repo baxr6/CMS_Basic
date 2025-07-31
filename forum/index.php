@@ -41,7 +41,7 @@ $categories = $stmt->fetchAll();
                     <a href="category.php?id=<?= $cat['id'] ?>">
                         <strong><?= htmlspecialchars($cat['name']) ?></strong>
                     </a><br>
-                    <small><?= htmlspecialchars($cat['description']) ?></small>
+                    <small><?= htmlspecialchars($cat['description'] ?? '') ?></small>
                 </td>
                 <td><?= $cat['thread_count'] ?></td>
 <td>
